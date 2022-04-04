@@ -7,11 +7,13 @@ import Css
 import Html.Styled
 import Html.Styled.Attributes as Attributes
 import Http
-import List.Extra exposing (find)
+import List.Extra
+import Maybe.Extra
 import Msg exposing (Msg(..))
+import Ports
 import Process
 import RemoteData exposing (RemoteData, WebData)
-import Station exposing (StationAvailability, StationIdentity)
+import Station exposing (StationAvailability, StationIdentity, StationMapInfo)
 import Task
 
 
@@ -33,6 +35,7 @@ init =
     , Cmd.batch
         [ CityBikesApi.getStationIdentities
         , CityBikesApi.getStationAvailabilities
+        , Ports.initialiseMapPort ()
         ]
     )
 
@@ -45,14 +48,26 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         FetchedStationIdentities response ->
-            ( { model | identities = response }
-            , handlePotentialError response
+            let
+                updatedModel =
+                    { model | identities = response }
+            in
+            ( updatedModel
+            , Cmd.batch
+                [ handlePotentialError response
+                , plotStationsOnMap updatedModel
+                ]
             )
 
         FetchedStationAvailabilities response ->
-            ( { model | availabilities = response }
+            let
+                updatedModel =
+                    { model | availabilities = response }
+            in
+            ( updatedModel
             , Cmd.batch
                 [ handlePotentialError response
+                , plotStationsOnMap updatedModel
                 , scheduleUpdateStationAvailabilities
                 ]
             )
@@ -63,6 +78,38 @@ update msg model =
             )
 
 
+plotStationsOnMap : Model -> Cmd Msg
+plotStationsOnMap model =
+    case ( model.identities, model.availabilities ) of
+        ( RemoteData.Success identities, RemoteData.Success availabilities ) ->
+            mapAllStationsToMapInfo identities availabilities
+                |> Ports.addStationsDetailsToMap
+
+        ( RemoteData.Success identities, RemoteData.Failure _ ) ->
+            Ports.addStationsToMap identities
+
+        ( _, _ ) ->
+            Cmd.none
+
+
+mapAllStationsToMapInfo : List StationIdentity -> List StationAvailability -> List StationMapInfo
+mapAllStationsToMapInfo identities availabilities =
+    identities
+        |> List.map (matchStationDataToBuildStationMapInfo availabilities)
+        |> Maybe.Extra.values
+
+
+matchStationDataToBuildStationMapInfo : List StationAvailability -> StationIdentity -> Maybe StationMapInfo
+matchStationDataToBuildStationMapInfo availabilities identity =
+    findAvailabilityForStationId availabilities identity.stationId
+        |> Maybe.map (\availability -> Station.mapToStationMapInfo identity availability)
+
+
+findAvailabilityForStationId : List StationAvailability -> String -> Maybe StationAvailability
+findAvailabilityForStationId availabilities stationId =
+    List.Extra.find (\availability -> availability.stationId == stationId) availabilities
+
+
 scheduleUpdateStationAvailabilities : Cmd Msg
 scheduleUpdateStationAvailabilities =
     Process.sleep timeUntilNextUpdateInMs
@@ -71,7 +118,7 @@ scheduleUpdateStationAvailabilities =
 
 timeUntilNextUpdateInMs : Float
 timeUntilNextUpdateInMs =
-    30000
+   30000
 
 
 handlePotentialError : RemoteData Http.Error a -> Cmd Msg
@@ -107,34 +154,50 @@ buildErrorLogMessage httpError =
 ---- VIEW ----
 
 
-view : Model -> Html Msg
+view : Model -> Html msg
 view model =
     Html.section []
         [ Html.h1 [] [ Html.text "Bysykkelstasjoner" ]
-        , showPage model
+        , mapContainer
+        , showListOfStations model
         ]
 
 
-showPage : Model -> Html Msg
-showPage model =
-    case ( model.identities, model.availabilities ) of
-        ( RemoteData.Success identitiesResponse, _ ) ->
-            Html.div []
-                [ showPotentialErrorMessageForAvailabilities model.availabilities
-                , showStations identitiesResponse model.availabilities
-                ]
-
-        ( RemoteData.Loading, _ ) ->
-            Html.text "Laster inn stasjoner"
-
-        ( RemoteData.Failure _, _ ) ->
-            Html.text "Noe gikk galt. Fikk ikke hentet stasjonene."
-
-        ( RemoteData.NotAsked, _ ) ->
-            Html.text ""
+mapContainer : Html msg
+mapContainer =
+    Html.div
+        [ Attributes.id "mapContainer"
+        , Attributes.css
+            [ Css.width <| Css.vh 100
+            , Css.height <| Css.vh 60
+            , Css.margin2 Css.zero Css.auto
+            ]
+        ]
+        []
 
 
-showPotentialErrorMessageForAvailabilities : WebData (List StationAvailability) -> Html Msg
+showListOfStations : Model -> Html msg
+showListOfStations model =
+    Html.div [ Attributes.css [ Css.marginTop <| Css.px 24 ] ]
+        [ case ( model.identities, model.availabilities ) of
+            ( RemoteData.Success identitiesResponse, _ ) ->
+                Html.div []
+                    [ showPotentialErrorMessageForAvailabilities model.availabilities
+                    , showStations identitiesResponse model.availabilities
+                    ]
+
+            ( RemoteData.Loading, _ ) ->
+                Html.text "Laster inn stasjoner"
+
+            ( RemoteData.Failure _, _ ) ->
+                Html.text "Noe gikk galt. Fikk ikke hentet stasjonene."
+
+            ( RemoteData.NotAsked, _ ) ->
+                Html.text ""
+        ]
+
+
+showPotentialErrorMessageForAvailabilities : WebData (List StationAvailability) -> Html msg
 showPotentialErrorMessageForAvailabilities availabilities =
     Html.div [ Attributes.css [ Css.marginBottom <| Css.px 12 ] ]
         [ case availabilities of
@@ -149,7 +212,7 @@ showPotentialErrorMessageForAvailabilities availabilities =
         ]
 
 
-showStations : List StationIdentity -> WebData (List StationAvailability) -> Html Msg
+showStations : List StationIdentity -> WebData (List StationAvailability) -> Html msg
 showStations identities availabilities =
     let
         sortedStationsByName =
@@ -158,7 +221,7 @@ showStations identities availabilities =
     Html.div [] (List.map (\identity -> showStation identity availabilities) sortedStationsByName)
 
 
-showStation : StationIdentity -> WebData (List StationAvailability) -> Html Msg
+showStation : StationIdentity -> WebData (List StationAvailability) -> Html msg
 showStation stationIdentity availabilities =
     Html.div
         [ Attributes.css
@@ -169,7 +232,7 @@ showStation stationIdentity availabilities =
         ]
 
 
-showStationName : String -> Html Msg
+showStationName : String -> Html msg
 showStationName name =
     Html.span
         [ Attributes.css
@@ -180,7 +243,7 @@ showStationName name =
         ]
 
 
-showStationAvailability : String -> WebData (List StationAvailability) -> Html Msg
+showStationAvailability : String -> WebData (List StationAvailability) -> Html msg
 showStationAvailability stationId availabilities =
     let
         receivedAvailabilities =
@@ -192,7 +255,7 @@ showStationAvailability stationId availabilities =
                     []
 
         maybeAvailability =
-            find (\s -> s.stationId == stationId) receivedAvailabilities
+            findAvailabilityForStationId receivedAvailabilities stationId
     in
     case maybeAvailability of
         Just availability ->

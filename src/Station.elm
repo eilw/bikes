@@ -1,4 +1,11 @@
-module Station exposing (StationAvailability, StationIdentity, stationAvailabilityDecoder, stationIdentityDecoder)
+module Station exposing
+    ( StationAvailability
+    , StationIdentity
+    , StationMapInfo
+    , mapToStationMapInfo
+    , stationAvailabilityDecoder
+    , stationIdentityDecoder
+    )
 
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as DecodePipeline
@@ -16,6 +23,25 @@ type alias StationAvailability =
     { stationId : String
     , numBikesAvailable : Int
     , numDocksAvailable : Int
+    }
+
+
+type alias StationMapInfo =
+    { name : String
+    , latitude : Float
+    , longitude : Float
+    , numBikesAvailable : Int
+    , numDocksAvailable : Int
+    }
+
+
+mapToStationMapInfo : StationIdentity -> StationAvailability -> StationMapInfo
+mapToStationMapInfo identity availability =
+    { name = identity.name
+    , latitude = identity.latitude
+    , longitude = identity.longitude
+    , numBikesAvailable = availability.numBikesAvailable
+    , numDocksAvailable = availability.numDocksAvailable
     }
 
 
