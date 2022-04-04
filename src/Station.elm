@@ -7,6 +7,8 @@ import Json.Decode.Pipeline as DecodePipeline
 type alias StationIdentity =
     { stationId : String
     , name : String
+    , latitude : Float
+    , longitude : Float
     }
 
 
@@ -22,6 +24,8 @@ stationIdentityDecoder =
     Decode.succeed StationIdentity
         |> DecodePipeline.required "station_id" Decode.string
         |> DecodePipeline.required "name" Decode.string
+        |> DecodePipeline.required "lat" Decode.float
+        |> DecodePipeline.required "lon" Decode.float
 
 
 stationAvailabilityDecoder : Decoder StationAvailability
